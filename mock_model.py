@@ -1,13 +1,19 @@
 import json
 import re
+import random
 
 class MockLLM:
     _instance = None
+    _conversation_states = [
+        "q&a",
+        "negotiation",
+        "end"
+    ]
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(MockLLM, cls).__new__(cls)
-            cls._instance.state = 1
+            cls._instance.conversation_state = 0
         return cls._instance
 
     def generate_content(self, prompt: str):
@@ -15,47 +21,46 @@ class MockLLM:
             return self._mock_report_response()
 
         response = {
-            "currentState": self.state,
-            "message": self._mock_message(self.state),
-            "sharkReaction": self._mock_reaction(self.state),
-            "checklistUpdate": self._mock_checklist(self.state),
-            "decision": self._mock_decision(self.state)
+            "currentState": self._conversation_states[self.conversation_state],
+            "message": self._mock_message(self.conversation_state),
+            "checklistUpdate": self._mock_checklist(self.conversation_state),
+            "decision": self._mock_decision(self.conversation_state)
         }
 
-        self.state = min(self.state + 1, 4)
+        self.conversation_state = min(self.conversation_state + 1, len(self._conversation_states))
 
         return type("MockResponse", (), {"text": json.dumps(response)})
 
     def _mock_message(self, state):
-        messages = {
-            1: "Interesting pitch. What's your revenue?",
-            2: "What are your margins and customer acquisition cost?",
-            3: "I'll offer 500,000 EGP for 20% equity.",
-            4: "Let's negotiate. Would you consider 15%?"
-        }
-        return messages.get(state, "Thanks for pitching.")
+        messages = [
+            "Interesting pitch. What are your margins and customer acquisition cost?",
+            "I'll offer 500,000 EGP for 20% equity.",
+            "Thanks for pitching."
+        ]
+        return messages[state]
 
-    def _mock_reaction(self, state):
-        return ["neutral", "skeptical", "impressed", "intrigued"][state - 1]
 
     def _mock_checklist(self, state):
         return {
-            "valuation": state >= 1,
-            "equity": state >= 1,
-            "revenue": state >= 2,
-            "grossMargin": state >= 2,
-            "customerAcquisitionCost": state >= 2,
-            "netProfit": state >= 3,
-            "scalability": state >= 3,
-            "licensing": state >= 4
+            "valuation": state >= 0,
+            "equity": state >= 0,
+            "revenue": state >= 1,
+            "grossMargin": state >= 1,
+            "customerAcquisitionCost": state >= 1,
+            "netProfit": state >= 2,
+            "scalability": state >= 2,
+            "licensing": state >= 2
         }
 
     def _mock_decision(self, state):
-        return "offer" if state >= 4 else "null"
+        decisions = ["offer", "pass"]
+        if state >= 1:
+            return random.choice(decisions)
+        return "null"
 
     def _mock_report_response(self):
         report = """
-Entrepreneur: Nada  
+Entrepreneur: Ahmed  
 Business Idea: AI-powered travel assistant for Egypt  
 Key Metrics:  
 - Valuation: 1M EGP  
@@ -71,4 +76,4 @@ Advice: Focus on licensing and recurring revenue
         return type("MockResponse", (), {"text": report})
 
     def reset(self):
-        self.state = 1
+        self.conversation_state = 1

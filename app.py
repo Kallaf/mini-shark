@@ -61,33 +61,25 @@ if st.session_state.shark_typing:
 
             # Update checklist
             for key, value in shark_data["checklistUpdate"].items():
-                st.session_state.checklist[key] = value
+                if value:
+                    st.session_state.checklist[key] = value
 
             # Update stage
             st.session_state.stage = shark_data["currentState"]
 
             # Handle decision
-            decision = shark_data["decision"]
-            user_response = st.session_state.latest_prompt.lower()
+            state = shark_data["currentState"]
 
-            if decision == "pass":
-                st.warning("Mr. Wonderful is out. The conversation has ended.")
-                st.session_state.final_report = generate_report(model, history)
+            if state == "end":
+                decision = shark_data["decision"]
+                if decision == "pass":
+                    st.warning("Mr. Wonderful is out. The conversation has ended.")
+                    st.session_state.final_report = generate_report(model, history)
 
-            elif decision == "offer" and ("accept" in user_response or "deal" in user_response):
-                st.success("💰 Deal accepted!")
-                st.session_state.final_report = generate_report(model, history)
+                elif decision == "offer":
+                    st.success("💰 Deal accepted!")
+                    st.session_state.final_report = generate_report(model, history)
 
-            # Optional UI reaction
-            reaction = shark_data["sharkReaction"]
-            if reaction == "skeptical":
-                st.info("Mr. Wonderful looks unconvinced 😒")
-            elif reaction == "impressed":
-                st.balloons()
-            elif reaction == "annoyed":
-                st.error("He's losing patience 😤")
-            elif reaction == "intrigued":
-                st.success("You've piqued his interest 👀")
 
             st.session_state.shark_typing = False
             st.rerun()
