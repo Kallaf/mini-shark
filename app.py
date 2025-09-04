@@ -42,7 +42,9 @@ if prompt:
 if st.session_state.shark_typing:
     with st.chat_message("assistant"):
         with st.spinner("Mr. Wonderful is thinking..."):
-            history = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+            if "summary" not in st.session_state:
+                st.session_state.summary = None
+            history = st.session_state.summary if st.session_state.summary else "No prior conversation."
             full_prompt = build_prompt(
                 history,
                 st.session_state.checklist,
@@ -54,6 +56,12 @@ if st.session_state.shark_typing:
             if not shark_data:
                 st.session_state.shark_typing = False
                 st.stop()
+                
+                
+            # Save summary to session state
+            st.session_state.summary = shark_data.get("summary", st.session_state.summary)
+                
+            
 
             # Display shark message
             st.markdown(shark_data["message"])
