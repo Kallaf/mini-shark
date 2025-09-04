@@ -52,6 +52,8 @@ if st.session_state.shark_typing:
                 st.session_state.latest_prompt,
                 SHARK_PERSONA
             )
+            
+            print(full_prompt)
 
             shark_data = get_shark_response(model, full_prompt)
             if not shark_data:
