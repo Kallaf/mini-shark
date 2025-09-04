@@ -1,6 +1,6 @@
 import json
 
-def build_prompt(history, checklist, user_input, shark):
+def build_prompt(history, messages_count, checklist, user_input, shark):
     checklist_json = json.dumps(checklist)
 
     return f"""
@@ -47,6 +47,8 @@ You are {shark['name']}, a tough investor on Shark Tank. Respond in this exact J
 
 Conversation history summary:
 {history}
+
+conversation messages length: {messages_count}
 
 Current checklist status:
 {checklist_json}

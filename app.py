@@ -47,6 +47,7 @@ if st.session_state.shark_typing:
             history = st.session_state.summary if st.session_state.summary else "No prior conversation."
             full_prompt = build_prompt(
                 history,
+                len(st.session_state.messages),
                 st.session_state.checklist,
                 st.session_state.latest_prompt,
                 SHARK_PERSONA
