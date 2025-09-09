@@ -1,7 +1,7 @@
 import streamlit as st
 from config import SHARK_PERSONA
 
-def render_sidebar(checklist):
+def render_sidebar():
     with st.sidebar:
         st.header("Shark Profile")
         st.subheader(SHARK_PERSONA["name"])
@@ -12,8 +12,3 @@ def render_sidebar(checklist):
         st.write("**Current Portfolio:**")
         for investment in SHARK_PERSONA["current_portfolio"]:
             st.write(f"- {investment}")
-        st.divider()
-        st.header("Pitch Checklist")
-        for term, covered in checklist.items():
-            status = "✅" if covered else "❌"
-            st.write(f"{status} {term}")

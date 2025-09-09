@@ -1,16 +1,35 @@
 import streamlit as st
 from config import SHARK_PERSONA
 from state import init_session
-from prompts import build_prompt
+from prompts import build_conversation_prompt, build_negotiation_prompt
 from llm import setup_llm, get_shark_response
 from report import generate_report, format_report
 from ui import render_sidebar
-from utils import extract_json
+from scoring_engine import ScoringEngine, shark1_decision
+from negotiation_engine import NegotiationEngine
 
 # --- Initialize ---
 init_session()
 model = setup_llm()
-render_sidebar(st.session_state.checklist)
+render_sidebar()
+
+# Set initial stage to "q&a" if not set
+if "stage" not in st.session_state or st.session_state.stage not in ["q&a", "negotiation", "end"]:
+    st.session_state.stage = "q&a"
+
+
+# Initialize scoring engine in session state
+if "scoring_engine" not in st.session_state:
+    st.session_state.scoring_engine = ScoringEngine()
+
+# Initialize negotiation engine in session state
+if "negotiation_engine" not in st.session_state:
+    st.session_state.negotiation_engine = NegotiationEngine({
+        "Out": 1,
+        "Bad offer (don't negotiate much)": 3,
+        "Fair but slightly low offer (light negotiation)": 5,
+        "Good offer + upsell yourself": 7
+    })
 
 # --- Display Chat History ---
 for msg in st.session_state.messages:
@@ -42,55 +61,102 @@ if prompt:
 if st.session_state.shark_typing:
     with st.chat_message("assistant"):
         with st.spinner("Mr. Wonderful is thinking..."):
+            print("Stage:", st.session_state.stage)  # Debugging line
             if "summary" not in st.session_state:
                 st.session_state.summary = None
             history = st.session_state.summary if st.session_state.summary else "No prior conversation."
-            full_prompt = build_prompt(
-                history,
-                len(st.session_state.messages),
-                st.session_state.checklist,
-                st.session_state.latest_prompt,
-                SHARK_PERSONA
-            )
-            
-            print(full_prompt)
 
-            shark_data = get_shark_response(model, full_prompt)
-            if not shark_data:
-                st.session_state.shark_typing = False
-                st.stop()
+            # Q&A (conversation) phase
+            if st.session_state.stage == "q&a":
+                full_prompt = build_conversation_prompt(
+                    history,
+                    st.session_state.latest_prompt,
+                    SHARK_PERSONA
+                )
+                shark_data = get_shark_response(model, full_prompt)
                 
-                
-            # Save summary to session state
-            st.session_state.summary = shark_data.get("summary", st.session_state.summary)
-                
-            
+                print("Shark data:", shark_data)  # Debugging line
+                print("---------------------------------------" * 3)  # Separator for clarity
+                if not shark_data:
+                    st.session_state.shark_typing = False
+                    st.stop()
 
-            # Display shark message
-            st.markdown(shark_data["message"])
-            st.session_state.messages.append({"role": "assistant", "content": shark_data["message"]})
+                # Scoring system logic
+                scoring = shark_data["scoring_params"]
+                st.session_state.scoring_engine.update(scoring)
+                grade = st.session_state.scoring_engine.final_grade()
+                decision = shark1_decision(grade)
 
-            # Update checklist
-            for key, value in shark_data["checklistUpdate"].items():
-                if value:
-                    st.session_state.checklist[key] = value
+                st.session_state.summary = shark_data.get("summary", st.session_state.summary)
+                st.markdown(shark_data["message"])
+                st.session_state.messages.append({"role": "assistant", "content": shark_data["message"]})
 
-            # Update stage
-            st.session_state.stage = shark_data["currentState"]
+                # If end_negotiation is True, end the conversation and show report
+                if shark_data.get("end_negotiation") is True:
+                    st.warning("Negotiation ended by Shark. The conversation has ended.")
+                    st.session_state.final_report = generate_report(model, st.session_state.summary)
+                    st.session_state.shark_typing = False
+                    st.rerun()
 
-            # Handle decision
-            state = shark_data["currentState"]
+                # If scoring engine made a decision, move to negotiation
+                elif st.session_state.scoring_engine.is_done():
+                    st.session_state.stage = "negotiation"
+                    st.session_state.decision = decision
+                    st.session_state.negotiation_count = 0
+                    # Optionally, set invest/not_invest reasons here
+                    st.session_state.invest_reasons = scoring.get("pros", [])
+                    st.session_state.not_invest_reasons = scoring.get("cons", [])
+                    st.rerun()
+                else:
+                    st.session_state.shark_typing = False
+                    st.rerun()
 
-            if state == "end":
-                decision = shark_data["decision"]
-                if decision == "pass":
+            # Negotiation phase
+            elif st.session_state.stage == "negotiation":
+                summary = st.session_state.summary if st.session_state.summary else "No prior conversation."
+                negotiation_count = st.session_state.get("negotiation_count", 0)
+                invest_reasons = st.session_state.get("invest_reasons", [])
+                not_invest_reasons = st.session_state.get("not_invest_reasons", [])
+                decision = st.session_state.get("decision", "Bad offer (don't negotiate much)")
+                print(f"Negotiation count: {negotiation_count}, Current decision: {decision}, Invest reasons: {invest_reasons}, Not invest reasons: {not_invest_reasons}")  # Debugging line
+
+                # Use negotiation engine to determine warning or out state
+                negotiation_state = st.session_state.negotiation_engine.negotiate(decision)
+                print(f"Negotiation state: {negotiation_state}")  # Debugging line
+                show_last_warning = negotiation_state == 'warning'
+                if negotiation_state == 'out':
+                    decision = "out"
+
+                full_prompt = build_negotiation_prompt(
+                    decision, invest_reasons, not_invest_reasons, SHARK_PERSONA, show_last_warning, summary
+                )
+                st.session_state.negotiation_count = negotiation_count + 1
+
+                shark_data = get_shark_response(model, full_prompt)
+                print("Shark data:", shark_data)  # Debugging line
+                print("---------------------------------------" * 3)  # Separator for clarity
+                if not shark_data:
+                    st.session_state.shark_typing = False
+                    st.stop()
+
+                st.session_state.summary = shark_data.get("summary", st.session_state.summary)
+                st.markdown(shark_data["message"])
+                st.session_state.messages.append({"role": "assistant", "content": shark_data["message"]})
+
+                # Handle offer accepted
+                if shark_data.get("offer_accepted") is True:
+                    st.success("💰 Offer accepted! The negotiation has ended.")
+                    st.session_state.final_report = generate_report(model, summary)
+                    st.session_state.shark_typing = False
+                    st.rerun()
+
+                print("Decision after negotiation:", decision)
+                # End negotiation if decision is out or negotiation limit reached
+                if decision == "out":
                     st.warning("Mr. Wonderful is out. The conversation has ended.")
-                    st.session_state.final_report = generate_report(model, history)
+                    st.session_state.final_report = generate_report(model, summary)
+                    st.session_state.shark_typing = False
+                    st.rerun()
 
-                elif decision == "offer":
-                    st.success("💰 Deal accepted!")
-                    st.session_state.final_report = generate_report(model, history)
-
-
-            st.session_state.shark_typing = False
-            st.rerun()
+                st.session_state.shark_typing = False
+                st.rerun()
